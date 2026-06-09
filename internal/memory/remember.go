@@ -23,6 +23,8 @@ func (rememberTool) Name() string { return "remember" }
 
 func (rememberTool) Description() string {
 	return "Save a durable fact to project memory so it survives across sessions. " +
+		"Use this proactively when the user corrects you, expresses a preference, or shares important context — " +
+		"don't wait to be asked. If you'd re-explain the same thing next session, it's worth remembering. " +
 		"Use for things worth remembering long-term: who the user is and their preferences (type \"user\"); " +
 		"guidance on how to work, including the why (type \"feedback\"); ongoing goals or constraints not " +
 		"derivable from the code (type \"project\"); or pointers to external resources (type \"reference\"). " +

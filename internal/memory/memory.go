@@ -179,7 +179,10 @@ func (s *Set) Block() string {
 		b.WriteString("\n## Saved memories\n\n")
 		b.WriteString("Facts you saved in earlier sessions. They reflect what was true when written and may now be stale — treat them as background, not standing instructions. " +
 			"Read the linked file with read_file when one looks relevant, and before acting on one that names a file, function, or flag, verify it still exists. " +
-			"Save new durable facts with the `remember` tool; delete ones that turn out wrong with `forget`.\n\n")
+			"Save new durable facts with the `remember` tool; delete ones that turn out wrong with `forget`.\n\n" +
+			"When a user corrects you, states a preference, or shares non-obvious context about the project, " +
+			"save it with `remember` so the learning persists across sessions. " +
+			"If you'd re-explain the same thing next session, it's worth saving now.\n\n")
 		b.WriteString(idx)
 		fmt.Fprintf(&b, "\n\n(stored under %s)\n", s.Store.Dir)
 	}
