@@ -197,6 +197,9 @@ func (s *Set) Block() string {
 				"Facts with activation=model_decision (the default) only show their description here; " +
 				"use `read_memory` with the slug name to read the full body. " +
 				"Always-on facts already appear in full above and are not listed here.\n\n" +
+				"**When to use each activation mode** when saving with `remember`:\n" +
+				"- `always_on` — for rules the model must see every session: coding conventions, build commands, security policies, architectural decisions.\n" +
+				"- `model_decision` (default) — for reference information that only matters when relevant: dependency paths, database URLs, tooling preferences.\n\n" +
 				"Save new durable facts with the `remember` tool; delete ones that turn out wrong with `forget`.\n\n" +
 				"When a user corrects you, states a preference, or shares non-obvious context about the project, " +
 				"save it with `remember` so the learning persists across sessions. " +

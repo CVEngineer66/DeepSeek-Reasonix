@@ -74,9 +74,9 @@ func NormalizeType(s string) Type {
 
 // Memory is one stored fact.
 type Memory struct {
-	Name        string         // kebab-case slug; also the file stem (<name>.md)
-	Title       string         // human-readable index label
-	Description string         // one-line summary for the index
+	Name        string // kebab-case slug; also the file stem (<name>.md)
+	Title       string // human-readable index label
+	Description string // one-line summary for the index
 	Type        Type
 	Activation  ActivationMode // how this fact loads into context
 	Topic       string         // subdirectory topic ("" for root); e.g. "frontend-style"
@@ -304,7 +304,6 @@ func (s Store) flushIndex(lines map[string]string) error {
 	return os.WriteFile(filepath.Join(s.Dir, indexFile), []byte(b.String()), 0o644)
 }
 
-
 // loadOne loads a single memory by slug.
 func (s Store) loadOne(name string) (Memory, bool) {
 	path := filepath.Join(s.Dir, name+".md")
@@ -324,13 +323,10 @@ func (s Store) loadOne(name string) (Memory, bool) {
 	return Memory{}, false
 }
 
-// reindex rewrites the MEMORY.md line for name, including the last-updated date.
+// reindex rewrites the MEMORY.md line for name. Date is appended by flushIndex.
 func (s Store) reindex(name string, m Memory) error {
 	lines := s.indexLinesExcept(name)
 	line := fmt.Sprintf("- [%s](%s.md) — %s", displayTitle(m.Title, name), name, oneLine(m.Description))
-	if !m.UpdatedAt.IsZero() {
-		line += " (" + m.UpdatedAt.Format("2006-01-02") + ")"
-	}
 	lines[name] = line
 	return s.flushIndex(lines)
 }

@@ -33,6 +33,8 @@ func (rememberTool) Description() string {
 		"Do NOT save what the repo already records (code structure, git history) or facts that only matter to the current conversation; " +
 		"if asked to remember one of those, save instead the non-obvious point behind it. " +
 		"Before saving, check the loaded memory index for an entry that already covers this — reuse that name to update it rather than create a near-duplicate, and use `forget` to drop one that is now wrong. " +
+		"Use activation=always_on for rules the model must see every session (coding conventions, build commands, security policies). " +
+		"Use activation=model_decision (default) for reference information that only matters when relevant (dependency paths, URLs, preferences). " +
 		"The saved index loads into context at the start of each session."
 }
 
@@ -44,7 +46,7 @@ func (rememberTool) Schema() json.RawMessage {
 			"title": {"type": "string", "description": "Short human-readable label shown in the memory index, e.g. \"Prefers tabs\". Omit to derive one from the name."},
 			"description": {"type": "string", "description": "One-line hook shown in the index — the phrase a future session reads to decide whether to open this memory. Make it specific."},
 			"type": {"type": "string", "enum": ["user", "feedback", "project", "reference"], "description": "Category of the fact."},
-			"activation": {"type": "string", "enum": ["always_on", "model_decision"], "description": "How this fact loads into context. always_on: full body in system prompt. model_decision (default): description in index, body loaded via read_file on demand."},
+			"activation": {"type": "string", "enum": ["always_on", "model_decision"], "description": "How this fact loads into context. always_on: full body in system prompt — use for rules the model must see every session. model_decision (default): description in index, body loaded via read_memory on demand."},
 			"body": {"type": "string", "description": "The fact itself (Markdown). For feedback/project, include a \"**Why:**\" line and a \"**How to apply:**\" line; link related memories with [[their-name]]."}
 		},
 		"required": ["description", "body"]

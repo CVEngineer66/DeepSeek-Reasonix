@@ -1,6 +1,6 @@
 +=====================================================================================================+
 |                                      记忆系统完整架构                                               |
-|                              启动加载层 · 运行时层 · 持久化层 · 校验层                               |
+|                              启动加载层 · 运行时层 · 持久化层                                       |
 +=====================================================================================================+
 
   BOOT TIME (一次启动)
@@ -12,20 +12,17 @@
   │  ┌──────────── Docs ────────────┐  ┌────────── Index ──────────┐  ┌───────── Store ────────┐ ││
   │  │                             │  │                          │  │                        │ ││
   │  │ user:   ~/.config/.../     │  │ MEMORY.md 文本内容         │  │ Save / Delete / List    │ ││
-  │  │         REASONIX.md        │  │ 格式:                      │  │ VerifyAllFacts          │ ││
-  │  │                             │  │ - [title](x.md) — desc    │  │ AlwaysOnFacts           │ ││
-  │  │ ancestor:  ../REASONIX.md  │  │   [may be stale]           │  │ read_memory             │ ││
-  │  │                             │  │ 200行上限 · recency排序    │  │                        │ ││
-  │  │ project: ./REASONIX.md     │  │                          │  │ 文件: .md + frontmatter  │ ││
-  │  │         ./AGENTS.md        │  │                          │  │ 目录: /memory/           │ ││
-  │  │         ./CLAUDE.md        │  │                          │  │ 主题: /memory/topic/     │ ││
-  │  │                             │  │                          │  │                        │ ││
-  │  │ local: ./REASONIX.local.md │  │                          │  │ refs: src/main.go       │ ││
-  │  │         ./AGENTS.local.md  │  │                          │  │ activation, created_at   │ ││
-  │  │         ./CLAUDE.local.md  │  │                          │  │ verified_at, verify_coun│ ││
-  │  │                             │  │                          │  │                        │ ││
-  │  │  @import 递归解析           │  │                          │  │ 校验: os.Stat(refs)     │ ││
-  │  │  5层上限 · 循环检测         │  │                          │  │                        │ ││
+  │  │         REASONIX.md        │  │ 格式:                      │  │ AlwaysOnFacts           │ ││
+  │  │                             │  │ - [title](x.md) — desc    │  │ read_memory             │ ││
+  │  │ ancestor:  ../REASONIX.md  │  │   (2026-06-09) 日期        │  │                        │ ││
+  │  │                             │  │ 200行上限 · recency排序    │  │ 文件: .md + frontmatter  │ ││
+  │  │ project: ./REASONIX.md     │  │                          │  │ 目录: /memory/           │ ││
+  │  │         ./AGENTS.md        │  │                          │  │ 主题: /memory/topic/     │ ││
+  │  │         ./CLAUDE.md        │  │                          │  │                        │ ││
+  │  │                             │  │                          │  │ activation, created_at   │ ││
+  │  │ local: ./REASONIX.local.md │  │                          │  │ updated_at              │ ││
+  │  │         ./AGENTS.local.md  │  │                          │  │                        │ ││
+  │  │         ./CLAUDE.local.md  │  │                          │  │                        │ ││
   │  └─────────────────────────────┘  └──────────────────────────┘  └────────────────────────┘ ││
   │                                                                                             ││
   └─────────────────────────────────────────────────────────────────────────────────────────────┘│
@@ -46,10 +43,9 @@
   │      You do not need to call read_memory for these.                                      │  │  │
   │      ### prefers-tabs                                                                    │  │  │
   │        Always indent with tabs in this project.                                         │  │  │
-  │    ## Saved memories                                                                     │  │  │
+  │    ## Saved memories（仅 model_decision）                                              │  │  │
   │      model_decision facts only show their description here; use read_memory for full body.  │  │  │
   │      (主动保存指引: when user corrects you, save it)                                        │  │  │
-  │      - [Prefers tabs](prefers-tabs.md) — User prefers tabs (2026-06-09)                    │  │  │
   │      - [DB Config](db-config.md) — PostgreSQL connection info (2026-06-01)                 │  │  │
   │                                                                                     ────┘  │  │
   │  拼入系统 prompt → agent.NewSession(sysPrompt) → Session.Messages[0]                   │  │  │
@@ -127,14 +123,11 @@
               │   name: prefers-tabs
               │   title: Prefers tabs
               │   description: User prefers tabs
-              │   activation: model_decision  ← always_on | model_decision
+              │   activation: always_on       ← always_on | model_decision
               │   topic:                     ← 可选，frontend-style
               │   type: user                 ← user | feedback | project | reference
               │   created_at: 2026-06-09T20:00:00Z
               │   updated_at: 2026-06-09T20:00:00Z
-              │   verified_at: 2026-06-09T20:30:00Z
-              │   verify_count: 1
-              │   refs: src/main.go, config.yaml
               │   metadata:
               │     type: user
               │   ---
