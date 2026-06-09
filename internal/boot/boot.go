@@ -172,6 +172,19 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	projectChecks := instruction.ExtractHostChecks(mem.Docs)
 	sysPrompt = memory.Compose(sysPrompt, mem)
 
+	// Startup verification: check auto-memory facts with file-path references
+	// against the current project root and mark stale ones in the index.
+	if verified, stale, missing, errs := mem.Store.VerifyAllFacts(root); verified > 0 {
+		slog.Debug("memory verification complete", "verified", verified, "stale", stale, "missing_refs", missing, "errors", len(errs))
+	}
+
+	// Extract facts from recent session summaries (best-effort, silent).
+	if sessionDir := config.SessionDir(); sessionDir != "" {
+		if n, err := mem.Store.ExtractAndPersistFacts(sessionDir, 5); err == nil && n > 0 {
+			slog.Debug("extracted facts from session summaries", "count", n)
+		}
+	}
+
 	// Skills: discover playbooks (built-in + project/custom/global) and fold their
 	// one-liner index into the same cache-stable prefix — names + descriptions
 	// only; bodies load on demand via run_skill or "/<name>". Bodies never enter

@@ -42,6 +42,7 @@ func (rememberTool) Schema() json.RawMessage {
 			"title": {"type": "string", "description": "Short human-readable label shown in the memory index, e.g. \"Prefers tabs\". Omit to derive one from the name."},
 			"description": {"type": "string", "description": "One-line hook shown in the index — the phrase a future session reads to decide whether to open this memory. Make it specific."},
 			"type": {"type": "string", "enum": ["user", "feedback", "project", "reference"], "description": "Category of the fact."},
+			"activation": {"type": "string", "enum": ["always_on", "model_decision"], "description": "How this fact loads into context. always_on: full body in system prompt. model_decision (default): description in index, body loaded via read_file on demand."},
 			"body": {"type": "string", "description": "The fact itself (Markdown). For feedback/project, include a \"**Why:**\" line and a \"**How to apply:**\" line; link related memories with [[their-name]]."}
 		},
 		"required": ["description", "body"]
@@ -54,6 +55,7 @@ func (t rememberTool) Execute(ctx context.Context, args json.RawMessage) (string
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Type        string `json:"type"`
+		Activation  string `json:"activation"`
 		Body        string `json:"body"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
@@ -64,7 +66,7 @@ func (t rememberTool) Execute(ctx context.Context, args json.RawMessage) (string
 	}
 	name := in.Name
 	if name == "" {
-		name = in.Title // Save slugifies; the title (or, below, the description) makes a serviceable slug
+		name = in.Title
 	}
 	if name == "" {
 		name = in.Description
@@ -74,6 +76,7 @@ func (t rememberTool) Execute(ctx context.Context, args json.RawMessage) (string
 		Title:       in.Title,
 		Description: in.Description,
 		Type:        NormalizeType(in.Type),
+		Activation:  NormalizeActivation(in.Activation),
 		Body:        in.Body,
 	})
 	if err != nil {

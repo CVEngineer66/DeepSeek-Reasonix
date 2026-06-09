@@ -1928,6 +1928,8 @@ func (c *Controller) QuickAdd(scope memory.Scope, note string) (string, error) {
 
 // SaveDoc overwrites a recognized memory doc with body — the save side of the
 // desktop panel's in-place editor. Returns the file written.
+// Instead of injecting the full body, only the diff is queued as a turn-tail note
+// so the model perceives the change without wasting tokens on unchanged content.
 func (c *Controller) SaveDoc(path, body string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1938,12 +1940,17 @@ func (c *Controller) SaveDoc(path, body string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Inject the new content once on the next turn: the cached prefix still holds
-	// the pre-edit version this session, so handing the model the current text
-	// avoids a stale-guidance gap until the next session re-folds it into the
-	// prefix. Trimmed to a single tail note (drained by Compose), not per-turn.
-	c.pendingMemory = append(c.pendingMemory,
-		"Memory file "+written+" was just edited. Its current contents:\n"+strings.TrimSpace(body))
+	// Generate a minimal diff so the model sees only what changed, not the full
+	// document. Falls back to the current body when the diff is empty (first
+	// write or unreadable saved version).
+	diff := c.mem.DocDiff(path)
+	tail := "Memory file " + written + " was just updated."
+	if diff != "" {
+		tail += "\n" + diff
+	} else {
+		tail += "\nIts current contents:\n" + strings.TrimSpace(body)
+	}
+	c.pendingMemory = append(c.pendingMemory, tail)
 	c.refreshMemoryLocked()
 	return written, nil
 }

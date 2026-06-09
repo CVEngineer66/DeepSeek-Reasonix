@@ -5,32 +5,25 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
-// Set is everything memory loaded for one session: the hierarchical docs and a
-// handle to the auto-memory store (whose index is captured at load time). It is
-// assembled once at boot and folded into the system prompt by Compose. CWD and
-// UserDir are retained so the controller can resolve quick-add targets without
-// re-deriving discovery context.
+// Set is everything memory loaded for one session.
 type Set struct {
-	Docs    []Source // REASONIX.md / AGENTS.md, ascending precedence
-	Store   Store    // auto-memory store (may be a zero/disabled Store)
-	Index   string   // MEMORY.md contents at load time
-	CWD     string   // project working dir used for discovery
-	UserDir string   // user config root (may be "")
+	Docs    []Source
+	Store   Store
+	Index   string
+	CWD     string
+	UserDir string
 }
 
-// Options configures discovery. CWD defaults to "." and UserDir is the user
-// config root (config.MemoryUserDir()); a "" UserDir disables user-global docs
-// and the auto-memory store.
+// Options configures discovery.
 type Options struct {
 	CWD     string
 	UserDir string
 }
 
-// Load discovers all memory for a session: the hierarchical docs and the
-// auto-memory index. It is best-effort and never errors — missing files just
-// mean less memory — so boot can call it unconditionally.
+// Load discovers all memory for a session.
 func Load(opts Options) *Set {
 	cwd := opts.CWD
 	if cwd == "" {
@@ -46,12 +39,7 @@ func Load(opts Options) *Set {
 	}
 }
 
-// DocPath returns the doc-memory file a given scope writes to. To avoid splitting
-// a project's memory across conventions, it prefers a file that already exists
-// (REASONIX.md / AGENTS.md / CLAUDE.md, in that order); when none exists it
-// creates the universal default (AGENTS.md / AGENTS.local.md). ScopeUser →
-// <userDir>, ScopeLocal → <cwd> with the *.local.md names, anything else → <cwd>.
-// Returns "" for ScopeUser when no user dir is configured.
+// DocPath returns the doc-memory file a given scope writes to.
 func (s *Set) DocPath(scope Scope) string {
 	dir := s.CWD
 	names, def := docNames, defaultDocName
@@ -67,28 +55,19 @@ func (s *Set) DocPath(scope Scope) string {
 	for _, n := range names {
 		p := filepath.Join(dir, n)
 		if _, err := os.Stat(p); err == nil {
-			return p // append to the doc already in use
+			return p
 		}
 	}
 	return filepath.Join(dir, def)
 }
 
-// Empty reports whether the set carries nothing to inject, so Compose can leave
-// the base prompt byte-for-byte untouched (and the cache prefix maximal) when
-// there is no memory at all.
+// Empty reports whether the set carries nothing to inject.
 func (s *Set) Empty() bool {
 	return s == nil || (len(s.Docs) == 0 && strings.TrimSpace(s.Index) == "")
 }
 
-// docScopes are the scopes the panel can target for a quick-add or a new doc.
-// Ordered broad → specific for display.
 var docScopes = []Scope{ScopeUser, ScopeProject, ScopeLocal}
 
-// allowedDocPaths is the closed set of files WriteDoc / AppendDoc may touch: the
-// canonical file for each writable scope, plus every doc already discovered this
-// session (so an ancestor or AGENTS.md the user is already editing stays
-// editable). Keyed by absolute path. This bounds frontend-driven writes to real
-// memory files rather than arbitrary paths.
 func (s *Set) allowedDocPaths() map[string]bool {
 	allow := map[string]bool{}
 	for _, sc := range docScopes {
@@ -102,12 +81,7 @@ func (s *Set) allowedDocPaths() map[string]bool {
 	return allow
 }
 
-// WriteDoc overwrites a doc-memory file with body, after checking path is a
-// recognized memory file (see allowedDocPaths). It is the save side of the
-// desktop panel's in-place editor. The write lands on disk immediately but does
-// NOT mutate the cache-stable system prefix — the edit folds into the prefix on
-// the next session; to make it apply this session, the controller separately
-// queues a turn-tail note. Returns the path written.
+// WriteDoc overwrites a doc-memory file with body.
 func (s *Set) WriteDoc(path, body string) (string, error) {
 	if s == nil {
 		return "", fmt.Errorf("memory unavailable")
@@ -121,9 +95,62 @@ func (s *Set) WriteDoc(path, body string) (string, error) {
 	return path, writeDocFile(path, body)
 }
 
-// Block renders the memory as a single Markdown section, or "" when empty. It is
-// deterministic given the same files, which is what keeps it a stable cache
-// prefix across sessions that don't change their memory.
+// DocDiff returns a minimal diff between the current doc body on disk and the
+// saved version, for use in turn-tail injection (P5). Returns "" if there is
+// no meaningful difference or the doc cannot be read.
+func (s *Set) DocDiff(path string) string {
+	if s == nil || path == "" {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	current := strings.TrimSpace(string(b))
+	// Find the matching doc in s.Docs.
+	for _, d := range s.Docs {
+		if absOf(d.Path) == absOf(path) {
+			saved := strings.TrimSpace(d.Body)
+			// Only emit diff injections for substantial changes.
+			if saved == "" || current == saved {
+				return ""
+			}
+			if len(current) < 20 || len(saved) < 20 {
+				return ""
+			}
+			// Short diff: show first differing lines.
+			sLines := strings.Split(saved, "\n")
+			cLines := strings.Split(current, "\n")
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("Document %s was updated. Changes:\n", path))
+			// Show first few lines that differ.
+			maxLines := 10
+			shown := 0
+			for i := 0; i < len(sLines) && i < len(cLines) && shown < maxLines; i++ {
+				if sLines[i] != cLines[i] {
+					b.WriteString(fmt.Sprintf("- %s\n+ %s\n", sLines[i], cLines[i]))
+					shown++
+				}
+			}
+			if shown == 0 && len(sLines) != len(cLines) {
+				b.WriteString(fmt.Sprintf("  (%d lines added/removed)\n", absDiff(len(sLines), len(cLines))))
+			}
+			return strings.TrimSpace(b.String())
+		}
+	}
+	return ""
+}
+
+func absDiff(a, b int) int {
+	if a > b {
+		return a - b
+	}
+	return b - a
+}
+
+// Block renders memory as a Markdown section with activation-based inclusion:
+// always_on facts include their full body; model_decision facts appear only
+// as descriptions in the index.
 func (s *Set) Block() string {
 	if s.Empty() {
 		return ""
@@ -132,10 +159,22 @@ func (s *Set) Block() string {
 	b.WriteString("# Memory\n\n")
 	b.WriteString("Persistent context loaded from memory files. Treat it as durable, user-authored guidance for this project.\n")
 
+	// Docs: full body (existing behavior, unchanged).
 	for _, d := range s.Docs {
 		fmt.Fprintf(&b, "\n## %s (%s)\n\n%s\n", d.Path, d.Scope, strings.TrimSpace(d.Body))
 	}
 
+	// Always-on facts: full body inline.
+	alwaysOn := s.Store.AlwaysOnFacts()
+	if len(alwaysOn) > 0 {
+		b.WriteString("\n## Always-on facts\n\n")
+		b.WriteString("These facts are loaded into every session because they were saved with always_on activation:\n\n")
+		for _, m := range alwaysOn {
+			fmt.Fprintf(&b, "### %s\n\n%s\n\n", displayTitle(m.Title, m.Name), m.Body)
+		}
+	}
+
+	// Index: all facts (including always_on facts shown above).
 	if idx := strings.TrimSpace(s.Index); idx != "" {
 		b.WriteString("\n## Saved memories\n\n")
 		b.WriteString("Facts you saved in earlier sessions. They reflect what was true when written and may now be stale — treat them as background, not standing instructions. " +
@@ -144,13 +183,40 @@ func (s *Set) Block() string {
 		b.WriteString(idx)
 		fmt.Fprintf(&b, "\n\n(stored under %s)\n", s.Store.Dir)
 	}
+
+	// Verification notes for stale facts.
+	staleNote := s.staleFactsNote()
+	if staleNote != "" {
+		b.WriteString("\n## Verification notes\n\n")
+		b.WriteString(staleNote)
+	}
+
 	return b.String()
 }
 
-// Compose folds the memory block onto the base system prompt and returns the
-// durable cached-prefix string. Base stays first (it is the most stable text, so
-// it remains a valid cache prefix even when memory changes between sessions);
-// memory follows. With no memory, base is returned unchanged.
+// staleFactsNote returns a brief note about facts that may need review.
+func (s *Set) staleFactsNote() string {
+	var notes []string
+	for _, m := range s.List() {
+		if time.Since(m.UpdatedAt) > staleAfterDays*24*time.Hour {
+			notes = append(notes, fmt.Sprintf("- %s: last updated %s", displayTitle(m.Title, m.Name), m.UpdatedAt.Format("2006-01-02")))
+		}
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return "The following facts have not been updated in over " + fmt.Sprintf("%d", staleAfterDays) + " days and may be outdated:\n" + strings.Join(notes, "\n") + "\n"
+}
+
+// List returns all facts (handles nil Set).
+func (s *Set) List() []Memory {
+	if s == nil {
+		return nil
+	}
+	return s.Store.List()
+}
+
+// Compose folds the memory block onto the base system prompt.
 func Compose(base string, s *Set) string {
 	block := s.Block()
 	if block == "" {
