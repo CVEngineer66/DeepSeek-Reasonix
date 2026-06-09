@@ -167,7 +167,8 @@ func (s *Set) Block() string {
 	alwaysOn := s.Store.AlwaysOnFacts()
 	if len(alwaysOn) > 0 {
 		b.WriteString("\n## Always-on facts\n\n")
-		b.WriteString("These facts are loaded into every session because they were saved with always_on activation:\n\n")
+		b.WriteString("These facts have activation=always_on, so their full content is already loaded below. " +
+			"You do not need to call read_memory for these.\n\n")
 		for _, m := range alwaysOn {
 			fmt.Fprintf(&b, "### %s\n\n%s\n\n", displayTitle(m.Title, m.Name), m.Body)
 		}
@@ -177,7 +178,9 @@ func (s *Set) Block() string {
 	if idx := strings.TrimSpace(s.Index); idx != "" {
 		b.WriteString("\n## Saved memories\n\n")
 		b.WriteString("Facts you saved in earlier sessions. They reflect what was true when written and may now be stale — treat them as background, not standing instructions. " +
-			"Read the linked file with read_file when one looks relevant, and before acting on one that names a file, function, or flag, verify it still exists. " +
+			"Facts with activation=model_decision (the default) only show their description here; " +
+			"use `read_memory` with the slug name to read the full body. " +
+			"Always-on facts already appear in full above and are not listed here.\n\n" +
 			"Save new durable facts with the `remember` tool; delete ones that turn out wrong with `forget`.\n\n" +
 			"When a user corrects you, states a preference, or shares non-obvious context about the project, " +
 			"save it with `remember` so the learning persists across sessions. " +
@@ -186,7 +189,7 @@ func (s *Set) Block() string {
 			"Judge freshness yourself — a dependency path from months ago may have changed, " +
 			"but a coding style preference is likely still valid.\n\n")
 		b.WriteString(idx)
-		fmt.Fprintf(&b, "\n\n(stored under %s)\n", s.Store.Dir)
+		b.WriteString("\n")
 	}
 
 	return b.String()
