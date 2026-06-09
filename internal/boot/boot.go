@@ -456,6 +456,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// loads into the prefix on the next session.
 	reg.Add(memory.NewRememberTool(mem.Store))
 	reg.Add(memory.NewForgetTool(mem.Store))
+	reg.Add(memory.NewReadMemoryTool(mem.Store))
 
 	// The `ask` tool puts structured multiple-choice questions to the user. It
 	// reaches them through the Asker on the call context, which interactive
