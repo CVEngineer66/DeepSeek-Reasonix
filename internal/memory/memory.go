@@ -174,22 +174,39 @@ func (s *Set) Block() string {
 		}
 	}
 
-	// Index: all facts (including always_on facts shown above).
+	// Index: all model_decision facts (always_on facts already shown above).
 	if idx := strings.TrimSpace(s.Index); idx != "" {
-		b.WriteString("\n## Saved memories\n\n")
-		b.WriteString("Facts you saved in earlier sessions. They reflect what was true when written and may now be stale — treat them as background, not standing instructions. " +
-			"Facts with activation=model_decision (the default) only show their description here; " +
-			"use `read_memory` with the slug name to read the full body. " +
-			"Always-on facts already appear in full above and are not listed here.\n\n" +
-			"Save new durable facts with the `remember` tool; delete ones that turn out wrong with `forget`.\n\n" +
-			"When a user corrects you, states a preference, or shares non-obvious context about the project, " +
-			"save it with `remember` so the learning persists across sessions. " +
-			"If you'd re-explain the same thing next session, it's worth saving now.\n\n" +
-			"Each fact shows its last-updated date in parentheses. " +
-			"Judge freshness yourself — a dependency path from months ago may have changed, " +
-			"but a coding style preference is likely still valid.\n\n")
-		b.WriteString(idx)
-		b.WriteString("\n")
+		// Build a set of always_on slugs so we can exclude them from the index.
+		alwaysOnSlugs := map[string]bool{}
+		for _, m := range s.Store.AlwaysOnFacts() {
+			alwaysOnSlugs[m.Name] = true
+		}
+
+		var filtered strings.Builder
+		for _, line := range strings.Split(idx, "\n") {
+			if mt := indexLineRe.FindStringSubmatch(line); mt != nil && alwaysOnSlugs[mt[1]] {
+				continue // skip always_on facts — they already appear above
+			}
+			filtered.WriteString(line)
+			filtered.WriteString("\n")
+		}
+		filteredIdx := strings.TrimSpace(filtered.String())
+		if filteredIdx != "" {
+			b.WriteString("\n## Saved memories\n\n")
+			b.WriteString("Facts you saved in earlier sessions. They reflect what was true when written and may now be stale — treat them as background, not standing instructions. " +
+				"Facts with activation=model_decision (the default) only show their description here; " +
+				"use `read_memory` with the slug name to read the full body. " +
+				"Always-on facts already appear in full above and are not listed here.\n\n" +
+				"Save new durable facts with the `remember` tool; delete ones that turn out wrong with `forget`.\n\n" +
+				"When a user corrects you, states a preference, or shares non-obvious context about the project, " +
+				"save it with `remember` so the learning persists across sessions. " +
+				"If you'd re-explain the same thing next session, it's worth saving now.\n\n" +
+				"Each fact shows its last-updated date in parentheses. " +
+				"Judge freshness yourself — a dependency path from months ago may have changed, " +
+				"but a coding style preference is likely still valid.\n\n")
+			b.WriteString(filteredIdx)
+			b.WriteString("\n")
+		}
 	}
 
 	return b.String()
