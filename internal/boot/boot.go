@@ -172,11 +172,6 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	projectChecks := instruction.ExtractHostChecks(mem.Docs)
 	sysPrompt = memory.Compose(sysPrompt, mem)
 
-	// Startup verification: check auto-memory facts with file-path references
-	// against the current project root and mark stale ones in the index.
-	if verified, stale, missing, errs := mem.Store.VerifyAllFacts(root); verified > 0 {
-		slog.Debug("memory verification complete", "verified", verified, "stale", stale, "missing_refs", missing, "errors", len(errs))
-	}
 
 	// Skills: discover playbooks (built-in + project/custom/global) and fold their
 	// one-liner index into the same cache-stable prefix — names + descriptions

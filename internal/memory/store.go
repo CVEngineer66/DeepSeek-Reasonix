@@ -44,9 +44,6 @@ const (
 	// alwaysOnMaxBody caps the total body size of always_on facts in the
 	// system prompt so one verbose fact can't crowd out the rest.
 	alwaysOnMaxBody = 4096
-
-	// staleAfterDays flags facts whose updated_at is older than this.
-	staleAfterDays = 30
 )
 
 // Store is the per-project auto-memory: a directory of one-fact-per-file
@@ -75,25 +72,17 @@ func NormalizeType(s string) Type {
 	return TypeProject
 }
 
-// Memory is one stored fact with metadata for activation-based loading,
-// verification, and topic directory support.
+// Memory is one stored fact.
 type Memory struct {
-	Name        string // kebab-case slug; also the file stem (<name>.md)
-	Title       string // human-readable index label
-	Description string // one-line summary for the index
+	Name        string         // kebab-case slug; also the file stem (<name>.md)
+	Title       string         // human-readable index label
+	Description string         // one-line summary for the index
 	Type        Type
-
-	Activation ActivationMode // how this fact loads into context
-	Topic      string         // subdirectory topic ("" for root); e.g. "frontend-style"
-
-	CreatedAt time.Time // when the fact was first saved
-	UpdatedAt time.Time // when the fact was last updated
-	Body      string    // the fact itself (Markdown)
-
-	// Verification metadata
-	VerifiedAt  time.Time // last verification time (zero = never verified)
-	VerifyCount int       // number of times verified
-	Refs        []string  // file paths referenced in the fact (for staleness check)
+	Activation  ActivationMode // how this fact loads into context
+	Topic       string         // subdirectory topic ("" for root); e.g. "frontend-style"
+	CreatedAt   time.Time      // when the fact was first saved
+	UpdatedAt   time.Time      // when the fact was last updated
+	Body        string         // the fact itself (Markdown)
 }
 
 // StoreFor resolves the auto-memory directory for a project working dir.
@@ -128,18 +117,6 @@ func (s Store) Path(name string) string {
 	return filepath.Join(s.Dir, slug(name)+".md")
 }
 
-// LastUpdated returns the latest updated_at across all facts, or zero time.
-// Used by the session summary to determine if any new facts were saved.
-func (s Store) LastUpdated() time.Time {
-	var latest time.Time
-	for _, m := range s.List() {
-		if m.UpdatedAt.After(latest) {
-			latest = m.UpdatedAt
-		}
-	}
-	return latest
-}
-
 // Save writes (or overwrites) a memory file and refreshes the index.
 func (s Store) Save(m Memory) (string, error) {
 	if s.Dir == "" {
@@ -157,7 +134,12 @@ func (s Store) Save(m Memory) (string, error) {
 	// Preserve explicit timestamps from the caller (used in tests and migration).
 	// Only auto-populate when zero.
 	if m.CreatedAt.IsZero() {
-		m.CreatedAt = now
+		// On overwrite, keep the original created_at from the existing file.
+		if existing, ok := s.loadOne(name); ok && !existing.CreatedAt.IsZero() {
+			m.CreatedAt = existing.CreatedAt
+		} else {
+			m.CreatedAt = now
+		}
 	}
 	if m.UpdatedAt.IsZero() {
 		m.UpdatedAt = now
@@ -167,10 +149,6 @@ func (s Store) Save(m Memory) (string, error) {
 	}
 	if m.Activation == "" {
 		m.Activation = ActivationModelDecision
-	}
-	// Auto-detect file path references from body for verification.
-	if len(m.Refs) == 0 {
-		m.Refs = refsFromBody(m.Body)
 	}
 
 	path := filepath.Join(s.Dir, topicDir(m.Topic), name+".md")
@@ -259,15 +237,6 @@ func render(m Memory, name string) string {
 	}
 	b.WriteString("created_at: " + m.CreatedAt.Format(time.RFC3339) + "\n")
 	b.WriteString("updated_at: " + m.UpdatedAt.Format(time.RFC3339) + "\n")
-	if !m.VerifiedAt.IsZero() {
-		b.WriteString("verified_at: " + m.VerifiedAt.Format(time.RFC3339) + "\n")
-	}
-	if m.VerifyCount > 0 {
-		b.WriteString(fmt.Sprintf("verify_count: %d\n", m.VerifyCount))
-	}
-	if len(m.Refs) > 0 {
-		b.WriteString("refs: " + strings.Join(m.Refs, ", ") + "\n")
-	}
 	b.WriteString("metadata:\n")
 	b.WriteString("  type: " + string(NormalizeType(string(m.Type))) + "\n")
 	b.WriteString("---\n\n")
@@ -291,6 +260,8 @@ func (s Store) indexLinesExcept(name string) map[string]string {
 
 // flushIndex rewrites MEMORY.md with 200-line cap, sorted by recency
 // (most recently updated first) so the most relevant facts stay visible.
+// Each index line includes the last-updated date so the model can judge
+// freshness for itself.
 func (s Store) flushIndex(lines map[string]string) error {
 	if s.Dir == "" {
 		return nil
@@ -307,10 +278,8 @@ func (s Store) flushIndex(lines map[string]string) error {
 		e := entry{slug: n, line: l}
 		if m, ok := s.loadOne(n); ok {
 			e.updatedAt = m.UpdatedAt
-			// Append verification status to the index line.
-			status := verificationStatus(m)
-			if status != "" {
-				e.line = l + " " + status
+			if !m.UpdatedAt.IsZero() {
+				e.line = l + " (" + m.UpdatedAt.Format("2006-01-02") + ")"
 			}
 		}
 		entries = append(entries, e)
@@ -335,25 +304,6 @@ func (s Store) flushIndex(lines map[string]string) error {
 	return os.WriteFile(filepath.Join(s.Dir, indexFile), []byte(b.String()), 0o644)
 }
 
-// verificationStatus returns a short marker for the index line.
-func verificationStatus(m Memory) string {
-	if !m.VerifiedAt.IsZero() {
-		return ""
-	}
-	// New facts (created within the last hour) don't need verification.
-	if time.Since(m.CreatedAt) < time.Hour {
-		return ""
-	}
-	// Facts older than staleAfterDays without verification are flagged.
-	if time.Since(m.UpdatedAt) > staleAfterDays*24*time.Hour {
-		return " [may be stale]"
-	}
-	// Facts with file references that were never verified.
-	if len(m.Refs) > 0 && m.VerifiedAt.IsZero() {
-		return " [unverified]"
-	}
-	return ""
-}
 
 // loadOne loads a single memory by slug.
 func (s Store) loadOne(name string) (Memory, bool) {
@@ -374,13 +324,12 @@ func (s Store) loadOne(name string) (Memory, bool) {
 	return Memory{}, false
 }
 
-// reindex rewrites the MEMORY.md line for name.
+// reindex rewrites the MEMORY.md line for name, including the last-updated date.
 func (s Store) reindex(name string, m Memory) error {
 	lines := s.indexLinesExcept(name)
-	status := verificationStatus(m)
 	line := fmt.Sprintf("- [%s](%s.md) — %s", displayTitle(m.Title, name), name, oneLine(m.Description))
-	if status != "" {
-		line += " " + status
+	if !m.UpdatedAt.IsZero() {
+		line += " (" + m.UpdatedAt.Format("2006-01-02") + ")"
 	}
 	lines[name] = line
 	return s.flushIndex(lines)
@@ -445,98 +394,6 @@ func (s Store) AlwaysOnFacts() []Memory {
 	return out
 }
 
-// refsFromBody extracts likely file paths from a markdown body.
-// Scans for paths containing path separators with common extensions.
-func refsFromBody(body string) []string {
-	seen := map[string]bool{}
-	var refs []string
-	// Scan for lines that look like file references.
-	for _, line := range strings.Split(body, "\n") {
-		// Look for markdown links to files.
-		if mt := refLinkRe.FindStringSubmatch(line); mt != nil {
-			p := mt[1]
-			if looksLikeFilePath(p) && !seen[p] {
-				seen[p] = true
-				refs = append(refs, p)
-			}
-		}
-		// Look for inline paths.
-		if mt := refPathRe.FindStringSubmatch(line); mt != nil {
-			p := strings.TrimSpace(mt[1])
-			if looksLikeFilePath(p) && !seen[p] {
-				seen[p] = true
-				refs = append(refs, p)
-			}
-		}
-	}
-	return refs
-}
-
-var refLinkRe = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
-var refPathRe = regexp.MustCompile(`(?:\` + "`" + `)?([\w./\\-]+\.(?:go|ts|tsx|js|jsx|py|rs|toml|yaml|yml|json|md|css|html|sh|proto|mod|sum))(?:` + "`" + `)?`)
-
-func looksLikeFilePath(s string) bool {
-	return strings.Contains(s, "/") || strings.Contains(s, "\\") || strings.Contains(s, ".")
-}
-
-// VerifyMemory checks an always_on or model_decision fact's refs still exist.
-// Returns a list of missing paths.
-func (s Store) VerifyMemory(m Memory, projectRoot string) []string {
-	if len(m.Refs) == 0 {
-		return nil
-	}
-	var missing []string
-	for _, ref := range m.Refs {
-		absPath := ref
-		if !filepath.IsAbs(absPath) && projectRoot != "" {
-			absPath = filepath.Join(projectRoot, absPath)
-		}
-		if _, err := os.Stat(absPath); os.IsNotExist(err) {
-			missing = append(missing, ref)
-		}
-	}
-	return missing
-}
-
-// VerifyAllFacts checks all facts with refs against the project root.
-// Updates verification metadata for each checked fact. Only facts that have
-// never been verified are updated — already-verified facts are skipped.
-func (s Store) VerifyAllFacts(projectRoot string) (verified int, stale int, missing int, errors []error) {
-	for _, m := range s.List() {
-		if m.Activation != ActivationAlwaysOn && m.Activation != ActivationModelDecision {
-			continue
-		}
-		if time.Since(m.UpdatedAt) > staleAfterDays*24*time.Hour {
-			stale++
-		}
-		// Skip facts that were already verified in a previous boot.
-		if !m.VerifiedAt.IsZero() {
-			verified++
-			continue
-		}
-		missingRefs := s.VerifyMemory(m, projectRoot)
-		if len(missingRefs) > 0 {
-			missing += len(missingRefs)
-		}
-		if err := s.saveVerifyResult(m); err != nil {
-			errors = append(errors, err)
-		}
-		verified++
-	}
-	return
-}
-
-func (s Store) saveVerifyResult(m Memory) error {
-	if s.Dir == "" {
-		return nil
-	}
-	m.VerifiedAt = time.Now()
-	m.VerifyCount++
-	name := slug(m.Name)
-	path := filepath.Join(s.Dir, topicDir(m.Topic), name+".md")
-	return os.WriteFile(path, []byte(render(m, name)), 0o644)
-}
-
 // loadMemory parses one fact file back into a Memory.
 func loadMemory(path string) (Memory, bool) {
 	b, err := os.ReadFile(path)
@@ -558,20 +415,6 @@ func loadMemory(path string) (Memory, bool) {
 	}
 	if t, err := time.Parse(time.RFC3339, fm["updated_at"]); err == nil {
 		m.UpdatedAt = t
-	}
-	if t, err := time.Parse(time.RFC3339, fm["verified_at"]); err == nil {
-		m.VerifiedAt = t
-	}
-	// Parse verify_count from frontmatter.
-	if v := strings.TrimSpace(fm["verify_count"]); v != "" {
-		if n, err := fmt.Sscanf(v, "%d", &m.VerifyCount); err == nil && n == 1 {
-			// success
-		}
-	}
-	// Parse refs from frontmatter (comma-separated or YAML list).
-	if r := strings.TrimSpace(fm["refs"]); r != "" {
-		// Comma-separated format: "a.go, b.go"
-		m.Refs = splitRefs(r)
 	}
 	if m.Name == "" {
 		m.Name = strings.TrimSuffix(filepath.Base(path), ".md")
@@ -607,33 +450,4 @@ func displayTitle(title, name string) string {
 		return t
 	}
 	return strings.ReplaceAll(name, "-", " ")
-}
-
-// splitRefs splits a refs frontmatter value into a slice.
-// Supports comma-separated ("a.go, b.go") and space-separated ("a.go b.go").
-func splitRefs(raw string) []string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	// Try comma-separated first.
-	if strings.Contains(raw, ",") {
-		parts := strings.Split(raw, ",")
-		out := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				out = append(out, trimmed)
-			}
-		}
-		return out
-	}
-	// Fall back to space-separated (for YAML list items that got concatenated).
-	parts := strings.Fields(raw)
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if trimmed := strings.TrimSpace(p); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
 }

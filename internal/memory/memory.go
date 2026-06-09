@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // Set is everything memory loaded for one session.
@@ -182,33 +181,15 @@ func (s *Set) Block() string {
 			"Save new durable facts with the `remember` tool; delete ones that turn out wrong with `forget`.\n\n" +
 			"When a user corrects you, states a preference, or shares non-obvious context about the project, " +
 			"save it with `remember` so the learning persists across sessions. " +
-			"If you'd re-explain the same thing next session, it's worth saving now.\n\n")
+			"If you'd re-explain the same thing next session, it's worth saving now.\n\n" +
+			"Each fact shows its last-updated date in parentheses. " +
+			"Judge freshness yourself — a dependency path from months ago may have changed, " +
+			"but a coding style preference is likely still valid.\n\n")
 		b.WriteString(idx)
 		fmt.Fprintf(&b, "\n\n(stored under %s)\n", s.Store.Dir)
 	}
 
-	// Verification notes for stale facts.
-	staleNote := s.staleFactsNote()
-	if staleNote != "" {
-		b.WriteString("\n## Verification notes\n\n")
-		b.WriteString(staleNote)
-	}
-
 	return b.String()
-}
-
-// staleFactsNote returns a brief note about facts that may need review.
-func (s *Set) staleFactsNote() string {
-	var notes []string
-	for _, m := range s.List() {
-		if time.Since(m.UpdatedAt) > staleAfterDays*24*time.Hour {
-			notes = append(notes, fmt.Sprintf("- %s: last updated %s", displayTitle(m.Title, m.Name), m.UpdatedAt.Format("2006-01-02")))
-		}
-	}
-	if len(notes) == 0 {
-		return ""
-	}
-	return "The following facts have not been updated in over " + fmt.Sprintf("%d", staleAfterDays) + " days and may be outdated:\n" + strings.Join(notes, "\n") + "\n"
 }
 
 // List returns all facts (handles nil Set).
